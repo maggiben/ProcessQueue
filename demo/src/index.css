@@ -1,0 +1,360 @@
+:root {
+  color-scheme: dark;
+  --bg: #070a0f;
+  --bg-elevated: #0f141d;
+  --panel: #121a26;
+  --border: rgba(148, 163, 184, 0.14);
+  --text: #e8eef8;
+  --muted: #8b9cb3;
+  --accent: #3ee8b6;
+  --accent-dim: rgba(62, 232, 182, 0.14);
+  --warn: #ffb454;
+  --danger: #ff6b7a;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --sans: "Outfit", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--sans);
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(62, 232, 182, 0.12), transparent),
+    radial-gradient(circle at 100% 0%, rgba(96, 165, 250, 0.08), transparent 40%),
+    var(--bg);
+  color: var(--text);
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  color: var(--accent);
+}
+
+.app {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 3rem;
+}
+
+.hero {
+  display: grid;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+@media (min-width: 800px) {
+  .hero {
+    grid-template-columns: 1fr auto;
+    align-items: end;
+  }
+}
+
+.eyebrow {
+  margin: 0 0 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.hero h1 {
+  margin: 0 0 0.75rem;
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1.05;
+  font-weight: 700;
+}
+
+.lede {
+  margin: 0;
+  max-width: 52ch;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.cta {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.85rem 1.25rem;
+  font: 600 0.95rem var(--sans);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cta:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cta.primary {
+  background: linear-gradient(135deg, #2dd4a8, #22c55e);
+  color: #04120d;
+  border-color: transparent;
+  box-shadow: 0 12px 40px rgba(62, 232, 182, 0.25);
+}
+
+.cta.primary:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.cta.ghost {
+  background: transparent;
+  color: var(--text);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.stat-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1rem 1.1rem;
+}
+
+.stat-card p {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.stat-card strong {
+  font-family: var(--mono);
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+
+.stat-card.accent strong {
+  color: var(--accent);
+}
+
+.stat-card.warn strong {
+  color: var(--warn);
+}
+
+.progress-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1rem 1.15rem 1.1rem;
+  margin-bottom: 1.5rem;
+}
+
+.progress-head,
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.progress-head {
+  margin-bottom: 0.65rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.progress-track {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  margin-bottom: 0.65rem;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2dd4a8, #38bdf8);
+  transition: width 0.12s linear;
+}
+
+.workspace {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 960px) {
+  .workspace {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "controls operations"
+      "log log";
+  }
+
+  .controls {
+    grid-area: controls;
+  }
+
+  .operations {
+    grid-area: operations;
+  }
+
+  .log {
+    grid-area: log;
+  }
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1.15rem 1.2rem 1.25rem;
+}
+
+.panel h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+}
+
+.panel-note {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.slider-field {
+  display: block;
+  margin-bottom: 1rem;
+}
+
+.slider-field span {
+  display: block;
+  margin-bottom: 0.45rem;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.slider-field input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.chip {
+  width: 100%;
+  margin-bottom: 1rem;
+  padding: 0.65rem 0.9rem;
+  border-radius: 10px;
+  border: 1px dashed var(--border);
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.btn-row,
+.btn-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.btn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+button {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  padding: 0.55rem 0.8rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: rgba(62, 232, 182, 0.35);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-row.danger button {
+  border-color: rgba(255, 107, 122, 0.35);
+  color: #ffc4cb;
+}
+
+.api-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  line-height: 1.7;
+  font-size: 0.9rem;
+}
+
+.log ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.log li {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  gap: 0.75rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.log li[data-level="action"] span {
+  color: #7dd3fc;
+}
+
+.log li[data-level="success"] span {
+  color: var(--accent);
+}
+
+.log li[data-level="warn"] span {
+  color: var(--warn);
+}
+
+.log time {
+  color: var(--muted);
+}
+
+footer {
+  margin-top: 2rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+footer p {
+  margin: 0;
+}
