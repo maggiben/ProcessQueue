@@ -1,5 +1,12 @@
 import {useEffect, useMemo, useRef, useState} from "react";
-import {QueueDemoController, type DemoSnapshot, type LogEntry} from "./queueController.js";
+import {
+  DEFAULT_BATCH,
+  DEFAULT_CONCURRENCY,
+  QueueDemoController,
+  TARGET_RUN_MS,
+  type DemoSnapshot,
+  type LogEntry
+} from "./queueController.js";
 
 function formatNumber(value: number): string {
   return value.toLocaleString(undefined, {maximumFractionDigits: 0});
@@ -22,9 +29,9 @@ export function App() {
   const controller = controllerRef.current;
   const [snapshot, setSnapshot] = useState<DemoSnapshot>(() => controller.snapshot());
   const [logs, setLogs] = useState<LogEntry[]>(() => controller.getRecentLogs());
-  const [concurrency, setConcurrency] = useState(64);
+  const [concurrency, setConcurrency] = useState(DEFAULT_CONCURRENCY);
   const [delay, setDelay] = useState(0);
-  const [batch, setBatch] = useState(8);
+  const [batch, setBatch] = useState(DEFAULT_BATCH);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -37,8 +44,12 @@ export function App() {
     const unsubscribe = controller.subscribe(sync);
     let frame = 0;
 
-    const tick = () => {
-      sync();
+    let lastSync = 0;
+    const tick = (now: number) => {
+      if (now - lastSync >= 100) {
+        sync();
+        lastSync = now;
+      }
       frame = requestAnimationFrame(tick);
     };
 
@@ -92,7 +103,7 @@ export function App() {
         <StatCard label="Completed" value={formatNumber(snapshot.stats.completed)} accent />
         <StatCard label="Pending" value={formatNumber(snapshot.metrics.pendingCount)} />
         <StatCard label="Active" value={formatNumber(snapshot.metrics.activeCount)} />
-        <StatCard label="Throughput" value={`${formatRate(snapshot.throughput)} /s`} />
+        <StatCard label="Throughput (1s window)" value={`${formatRate(snapshot.throughput)} /s`} />
         <StatCard label="Enqueued" value={formatNumber(snapshot.stats.enqueued)} />
         <StatCard label="Cleared" value={formatNumber(snapshot.stats.cleared)} warn />
       </section>
@@ -106,9 +117,24 @@ export function App() {
           <div className="progress-fill" style={{width: `${Math.min(snapshot.progress * 100, 100)}%`}} />
         </div>
         <div className="progress-meta">
-          <span>{snapshot.metrics.isPaused ? "Paused" : "Running"}</span>
+          <span>
+            {snapshot.isFinished ? "Finished" : snapshot.metrics.isPaused ? "Paused" : "Running"}
+          </span>
           <span>{snapshot.metrics.isDrained ? "Drained" : "In flight"}</span>
-          <span>{(snapshot.elapsedMs / 1000).toFixed(1)}s elapsed</span>
+          <span>
+            {snapshot.isFinished
+              ? `finished in ${(snapshot.elapsedMs / 1000).toFixed(1)}s`
+              : `${(snapshot.elapsedMs / 1000).toFixed(1)}s elapsed`}
+          </span>
+          {snapshot.stats.totalTarget > 0 && (
+            <span>
+              {snapshot.etaSeconds === null
+                ? `target ~${TARGET_RUN_MS / 1000}s`
+                : snapshot.etaSeconds <= 0
+                  ? "done"
+                  : `~${Math.ceil(snapshot.etaSeconds)}s left`}
+            </span>
+          )}
         </div>
       </section>
 
@@ -211,7 +237,7 @@ export function App() {
 
           <ul className="api-list">
             <li>
-              <code>limit(fn, id)</code> — million-task workload
+              <code>enqueue()</code> — 50k tasks, 1M logical operations
             </li>
             <li>
               <code>addEach</code> + <code>each()</code> — retry via <code>return true</code>

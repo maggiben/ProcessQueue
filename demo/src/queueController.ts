@@ -3,6 +3,11 @@ import type {QueueMetrics} from "../types.js";
 
 export type WorkloadKind = "tasks" | "items";
 
+export const MILLION = 1_000_000;
+export const TARGET_RUN_MS = 45_000;
+export const DEFAULT_CONCURRENCY = 256;
+export const DEFAULT_BATCH = 32;
+
 export interface DemoStats {
   enqueued: number;
   completed: number;
@@ -12,8 +17,10 @@ export interface DemoStats {
   mapRuns: number;
   itemRetries: number;
   startedAt: number | null;
+  finishedAt: number | null;
   loadInProgress: boolean;
   workload: WorkloadKind | null;
+  totalTarget: number;
 }
 
 export interface DemoSnapshot {
@@ -22,6 +29,8 @@ export interface DemoSnapshot {
   throughput: number;
   elapsedMs: number;
   progress: number;
+  etaSeconds: number | null;
+  isFinished: boolean;
 }
 
 export interface LogEntry {
@@ -36,8 +45,12 @@ interface QueueItem {
   retryOnce: boolean;
 }
 
-const MILLION = 1_000_000;
-const ENQUEUE_CHUNK = 8_000;
+/** Each queue task represents this many logical operations (1M total ops, fewer queue entries). */
+const ITEMS_PER_TASK = 20;
+const TASK_COUNT = MILLION / ITEMS_PER_TASK;
+const ENQUEUE_CHUNK = 5_000;
+const THROUGHPUT_WINDOW_MS = 1_000;
+const COMPLETED_FLUSH_MS = 50;
 
 export class QueueDemoController {
   queue: ProcessQueue<number | QueueItem>;
@@ -48,10 +61,15 @@ export class QueueDemoController {
   private readonly listeners = new Set<() => void>();
   private abortController: AbortController | null = null;
   private itemAttempts = new Map<number, number>();
+  private pendingCompleted = 0;
+  private flushTimer: ReturnType<typeof setInterval> | null = null;
+  private throughputSample = {at: 0, completed: 0};
+  private lastThroughput = 0;
 
   constructor() {
     this.stats = this.freshStats();
-    this.queue = this.createTaskQueue(64, 0, 8);
+    this.queue = this.createTaskQueue(DEFAULT_CONCURRENCY, 0, DEFAULT_BATCH);
+    this.startCompletedFlush();
   }
 
   private freshStats(): DemoStats {
@@ -64,9 +82,43 @@ export class QueueDemoController {
       mapRuns: 0,
       itemRetries: 0,
       startedAt: null,
+      finishedAt: null,
       loadInProgress: false,
-      workload: null
+      workload: null,
+      totalTarget: 0
     };
+  }
+
+  private completedCount(): number {
+    return this.stats.completed + this.pendingCompleted;
+  }
+
+  private checkRunComplete(): void {
+    if (this.stats.finishedAt !== null || !this.stats.startedAt || this.stats.totalTarget === 0) {
+      return;
+    }
+
+    if (this.stats.loadInProgress) {
+      return;
+    }
+
+    if (this.completedCount() < this.stats.totalTarget) {
+      return;
+    }
+
+    if (!this.queue.metrics().isDrained) {
+      return;
+    }
+
+    this.stats.finishedAt = Date.now();
+    this.lastThroughput = 0;
+    const elapsed = this.stats.finishedAt - this.stats.startedAt;
+    this.log("success", `Run complete in ${(elapsed / 1000).toFixed(1)}s`);
+    this.emit();
+  }
+
+  private resumeRunClock(): void {
+    this.stats.finishedAt = null;
   }
 
   private createTaskQueue(concurrency: number, delay: number, batch: number): ProcessQueue<number> {
@@ -95,8 +147,7 @@ export class QueueDemoController {
           return true;
         }
 
-        this.stats.completed++;
-        this.emit();
+        this.pendingCompleted++;
         return false;
       },
       complete: () => {
@@ -104,6 +155,48 @@ export class QueueDemoController {
         this.emit();
       }
     });
+  }
+
+  private startCompletedFlush(): void {
+    this.flushTimer = setInterval(() => {
+      if (this.pendingCompleted === 0) {
+        return;
+      }
+
+      this.stats.completed += this.pendingCompleted;
+      this.pendingCompleted = 0;
+      this.checkRunComplete();
+      this.emit();
+    }, COMPLETED_FLUSH_MS);
+  }
+
+  private markCompleted(): void {
+    this.pendingCompleted++;
+  }
+
+  private resetThroughputSample(): void {
+    this.throughputSample = {at: 0, completed: 0};
+    this.lastThroughput = 0;
+  }
+
+  private measureThroughput(): number {
+    const now = Date.now();
+    const sample = this.throughputSample;
+
+    if (sample.at === 0) {
+      this.throughputSample = {at: now, completed: this.stats.completed};
+      return 0;
+    }
+
+    const elapsed = now - sample.at;
+    if (elapsed < THROUGHPUT_WINDOW_MS) {
+      return this.lastThroughput;
+    }
+
+    const delta = this.stats.completed - sample.completed;
+    this.lastThroughput = (delta / elapsed) * 1000;
+    this.throughputSample = {at: now, completed: this.stats.completed};
+    return this.lastThroughput;
   }
 
   subscribe(listener: () => void): () => void {
@@ -117,15 +210,33 @@ export class QueueDemoController {
 
   snapshot(): DemoSnapshot {
     const metrics = this.queue.metrics();
-    const elapsedMs = this.stats.startedAt ? Date.now() - this.stats.startedAt : 0;
-    const seconds = Math.max(elapsedMs / 1000, 0.001);
+    const completed = this.completedCount();
+    const isFinished = this.stats.finishedAt !== null;
+    const elapsedMs =
+      this.stats.startedAt && this.stats.finishedAt
+        ? this.stats.finishedAt - this.stats.startedAt
+        : this.stats.startedAt
+          ? Date.now() - this.stats.startedAt
+          : 0;
+    const throughput = isFinished ? 0 : this.measureThroughput();
+    const target = this.stats.totalTarget || 0;
+    const progress = target > 0 ? Math.min(completed / target, 1) : 0;
+
+    let etaSeconds: number | null = null;
+    if (target > 0 && completed < target && throughput > 0) {
+      etaSeconds = (target - completed) / throughput;
+    } else if (target > 0 && completed >= target) {
+      etaSeconds = 0;
+    }
 
     return {
       metrics,
-      stats: {...this.stats},
-      throughput: this.stats.completed / seconds,
+      stats: {...this.stats, completed},
+      throughput,
       elapsedMs,
-      progress: this.stats.enqueued > 0 ? this.stats.completed / this.stats.enqueued : 0
+      progress,
+      etaSeconds,
+      isFinished
     };
   }
 
@@ -153,9 +264,11 @@ export class QueueDemoController {
     this.abortController?.abort();
     this.abortController = null;
     const {concurrency} = this.queue;
-    this.queue = this.createTaskQueue(concurrency, 0, 8);
+    this.queue = this.createTaskQueue(concurrency, 0, DEFAULT_BATCH);
     this.itemAttempts.clear();
+    this.pendingCompleted = 0;
     this.stats = this.freshStats();
+    this.resetThroughputSample();
     this.log("warn", "Reset — new task queue, counters cleared");
     this.emit();
   }
@@ -166,36 +279,41 @@ export class QueueDemoController {
     }
 
     this.reset();
-    this.queue = this.createTaskQueue(this.queue.concurrency, 0, 8);
+    this.queue = this.createTaskQueue(DEFAULT_CONCURRENCY, 0, DEFAULT_BATCH);
     this.stats.loadInProgress = true;
     this.stats.workload = "tasks";
+    this.stats.totalTarget = MILLION;
     this.stats.startedAt = Date.now();
+    this.resetThroughputSample();
     const generation = ++this.loadGeneration;
 
-    this.log("action", "Enqueueing 1,000,000 tasks via limit() in 8k chunks");
+    this.log(
+      "action",
+      `${TASK_COUNT.toLocaleString()} queue tasks × ${ITEMS_PER_TASK} ops = ${MILLION.toLocaleString()} (target ~${TARGET_RUN_MS / 1000}s)`
+    );
 
-    const processId = (id: number) => {
-      this.stats.completed++;
-      return id;
+    const runTask = () => {
+      this.pendingCompleted += ITEMS_PER_TASK;
+      return 1;
     };
 
     try {
-      for (let offset = 0; offset < MILLION; offset += ENQUEUE_CHUNK) {
+      for (let offset = 0; offset < TASK_COUNT; offset += ENQUEUE_CHUNK) {
         if (generation !== this.loadGeneration) {
           return;
         }
 
-        const end = Math.min(offset + ENQUEUE_CHUNK, MILLION);
-        for (let id = offset; id < end; id++) {
-          this.stats.enqueued++;
-          void this.queue.limit(processId, id).catch(reason => this.onTaskRejected(reason));
+        const end = Math.min(offset + ENQUEUE_CHUNK, TASK_COUNT);
+        for (let task = offset; task < end; task++) {
+          this.stats.enqueued += ITEMS_PER_TASK;
+          void this.queue.enqueue(runTask).catch(reason => this.onTaskRejected(reason));
         }
 
         this.emit();
         await new Promise<void>(resolve => setTimeout(resolve, 0));
       }
 
-      this.log("success", "1M tasks queued — pause, clear, or crank concurrency live");
+      this.log("success", "All tasks queued — processing toward 1M operations");
     } finally {
       if (generation === this.loadGeneration) {
         this.stats.loadInProgress = false;
@@ -210,10 +328,12 @@ export class QueueDemoController {
     }
 
     this.reset();
-    this.queue = this.createItemQueue(this.queue.concurrency, 0, 8);
+    this.queue = this.createItemQueue(DEFAULT_CONCURRENCY, 0, DEFAULT_BATCH);
     this.stats.loadInProgress = true;
     this.stats.workload = "items";
+    this.stats.totalTarget = count;
     this.stats.startedAt = Date.now();
+    this.resetThroughputSample();
     const generation = ++this.loadGeneration;
 
     this.log("action", `addEach() × ${count.toLocaleString()} with each() retry (return true)`);
@@ -248,6 +368,8 @@ export class QueueDemoController {
 
     const taskQueue = this.queue as ProcessQueue<number>;
     this.stats.mapRuns++;
+    this.stats.totalTarget = (this.stats.totalTarget || 0) + size;
+    this.resumeRunClock();
     this.log("action", `map() + limit() on ${size.toLocaleString()} integers`);
 
     const values = Array.from({length: size}, (_, index) => index);
@@ -308,12 +430,15 @@ export class QueueDemoController {
     }
 
     const taskQueue = this.queue as ProcessQueue<number>;
+    this.stats.totalTarget += count;
+    this.resumeRunClock();
+
     for (let index = 0; index < count; index++) {
       this.stats.priorityBurst++;
       this.stats.enqueued++;
       void taskQueue
         .enqueue(() => {
-          this.stats.completed++;
+          this.markCompleted();
           return -index;
         }, {priority: true})
         .catch(reason => this.onTaskRejected(reason));
@@ -333,6 +458,8 @@ export class QueueDemoController {
     this.abortController?.abort();
     this.abortController = new AbortController();
     const {signal} = this.abortController;
+    this.stats.totalTarget += 200;
+    this.resumeRunClock();
 
     for (let index = 0; index < 200; index++) {
       this.stats.enqueued++;
@@ -344,6 +471,7 @@ export class QueueDemoController {
             }),
           {signal}
         )
+        .then(() => this.markCompleted())
         .catch(reason => this.onTaskRejected(reason));
     }
 
